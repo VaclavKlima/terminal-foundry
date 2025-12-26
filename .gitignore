@@ -1,0 +1,14 @@
+# PHP
+/vendor/
+/composer.lock
+
+# Build artifacts
+/dist/
+
+# IDEs
+/.idea/
+/.vscode/
+
+# OS
+Thumbs.db
+Desktop.ini

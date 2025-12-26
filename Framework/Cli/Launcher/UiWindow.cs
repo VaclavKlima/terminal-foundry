@@ -1,0 +1,626 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace PhpCompiler
+{
+    internal sealed class UiWindow
+    {
+        private readonly PhpUiSession _session;
+        private readonly string[] _baseArgs;
+        private readonly LauncherLog _logger;
+        private readonly bool _debug;
+
+        public UiWindow(PhpUiSession session, string[] baseArgs, LauncherLog logger, bool debug)
+        {
+            _session = session;
+            _baseArgs = baseArgs ?? Array.Empty<string>();
+            _logger = logger;
+            _debug = debug;
+        }
+
+        public void Show(UiPayload payload, string title)
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            var form = new Form
+            {
+                Text = title,
+                StartPosition = FormStartPosition.CenterScreen,
+                Width = 900,
+                Height = 600,
+                BackColor = Color.FromArgb(22, 24, 28)
+            };
+
+            var scroll = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(18, 20, 24)
+            };
+
+            var stack = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoSize = true,
+                Padding = new Padding(16),
+                BackColor = Color.FromArgb(18, 20, 24)
+            };
+
+            scroll.Controls.Add(stack);
+            form.Controls.Add(scroll);
+            Label debugLabel = null;
+            if (_debug)
+            {
+                debugLabel = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = Color.Black,
+                    BackColor = Color.Gold,
+                    Font = new Font("Consolas", 8f, FontStyle.Bold),
+                    Padding = new Padding(6, 4, 6, 4)
+                };
+
+                var debugBar = new Panel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 24,
+                    BackColor = Color.Gold
+                };
+                debugBar.Controls.Add(debugLabel);
+                form.Controls.Add(debugBar);
+            }
+
+            var labels = new List<Label>();
+            var tables = new List<ListView>();
+            var toolTip = new ToolTip();
+
+            Action render = null;
+            Action<UiPayload> setPayload = p => payload = p;
+            render = () =>
+            {
+                try
+                {
+                    stack.Controls.Clear();
+                    labels.Clear();
+                    tables.Clear();
+
+                    if (payload.Nodes != null && payload.Nodes.ContainsKey("type"))
+                    {
+                        if (_debug)
+                        {
+                            _logger.Log("Rendering nodes payload.");
+                        }
+                        AddNode(payload.Nodes, stack, labels, tables, toolTip, render, setPayload);
+                    }
+                    else
+                    {
+                        string text = string.IsNullOrWhiteSpace(payload.Text)
+                            ? "Empty payload received from PHP."
+                            : payload.Text;
+                        if (_debug)
+                        {
+                            _logger.Log("Rendering text payload.");
+                        }
+                        var fallback = CreateTextLabel(text, labels);
+                        stack.Controls.Add(fallback);
+                    }
+
+                    if (stack.Controls.Count == 0)
+                    {
+                        if (_debug)
+                        {
+                            _logger.Log("Render produced zero controls.");
+                        }
+                        stack.Controls.Add(CreateTextLabel("Render produced no controls.", labels));
+                    }
+
+                    UpdateLayout(scroll, labels, tables);
+                    if (_debug && debugLabel != null)
+                    {
+                        debugLabel.Text = string.Format(
+                            "controls={0} labels={1} tables={2} width={3} height={4}",
+                            stack.Controls.Count,
+                            labels.Count,
+                            tables.Count,
+                            stack.Width,
+                            stack.Height);
+                        _logger.Log("Render stats: " + debugLabel.Text);
+                        LogControlTree(stack, 0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log("Render exception: " + ex);
+                    stack.Controls.Clear();
+                    labels.Clear();
+                    tables.Clear();
+                    stack.Controls.Add(CreateTextLabel("Render exception: " + ex.Message, labels));
+                    if (_debug && debugLabel != null)
+                    {
+                        debugLabel.Text = "render exception";
+                    }
+                }
+            };
+
+            form.SizeChanged += delegate { UpdateLayout(scroll, labels, tables); };
+            form.Shown += delegate
+            {
+                render();
+                UpdateLayout(scroll, labels, tables);
+                if (_debug)
+                {
+                    form.BeginInvoke((Action)delegate
+                    {
+                        UpdateLayout(scroll, labels, tables);
+                        LogControlTree(stack, 0);
+                    });
+                }
+            };
+
+            render();
+            Application.Run(form);
+        }
+
+        private void LogControlTree(Control control, int depth)
+        {
+            string indent = new string(' ', depth * 2);
+            _logger.Log(string.Format(
+                "{0}{1} visible={2} bounds={3} children={4}",
+                indent,
+                control.GetType().Name,
+                control.Visible,
+                control.Bounds,
+                control.Controls.Count));
+
+            foreach (Control child in control.Controls)
+            {
+                LogControlTree(child, depth + 1);
+            }
+        }
+
+        private static void UpdateLayout(Panel scroll, List<Label> labels, List<ListView> tables)
+        {
+            int width = scroll.ClientSize.Width - 32;
+            if (width <= 0)
+            {
+                return;
+            }
+            width = Math.Max(200, width);
+            foreach (var label in labels)
+            {
+                label.MaximumSize = new Size(width, 0);
+            }
+
+            foreach (var table in tables)
+            {
+                table.Width = width;
+                foreach (ColumnHeader column in table.Columns)
+                {
+                    column.Width = -2;
+                }
+            }
+        }
+
+        private static Label CreateTextLabel(string text, List<Label> labels)
+        {
+            var label = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Consolas", 10f),
+                Text = text
+            };
+            labels.Add(label);
+            return label;
+        }
+
+        private void AddNode(
+            object node,
+            FlowLayoutPanel container,
+            List<Label> labels,
+            List<ListView> tables,
+            ToolTip toolTip,
+            Action rerender,
+            Action<UiPayload> setPayload)
+        {
+            var dict = node as Dictionary<string, object>;
+            if (dict == null)
+            {
+                return;
+            }
+
+            string type = UiNodeReader.GetString(dict, "type");
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                return;
+            }
+
+            switch (type)
+            {
+                case "app":
+                case "page":
+                case "section":
+                case "card":
+                    AddGroup(dict, container, labels, tables, toolTip, rerender, setPayload);
+                    break;
+                case "text":
+                    container.Controls.Add(CreateTextLabel(UiNodeReader.GetString(dict, "text") ?? string.Empty, labels));
+                    break;
+                case "table":
+                    container.Controls.Add(CreateTable(dict, tables));
+                    break;
+                case "buttonRow":
+                    container.Controls.Add(CreateButtonRow(dict, toolTip, rerender, setPayload));
+                    break;
+                case "textInput":
+                    container.Controls.Add(CreateTextInput(dict));
+                    break;
+                case "select":
+                    container.Controls.Add(CreateSelect(dict));
+                    break;
+                default:
+                    container.Controls.Add(CreateTextLabel("Unsupported element: " + type, labels));
+                    break;
+            }
+        }
+
+        private void AddGroup(
+            Dictionary<string, object> dict,
+            FlowLayoutPanel container,
+            List<Label> labels,
+            List<ListView> tables,
+            ToolTip toolTip,
+            Action rerender,
+            Action<UiPayload> setPayload)
+        {
+            string type = UiNodeReader.GetString(dict, "type") ?? "section";
+            string title = UiNodeReader.GetString(dict, "title") ?? string.Empty;
+
+            Control wrapper;
+            FlowLayoutPanel inner;
+
+            if (type == "card")
+            {
+                var group = new GroupBox
+                {
+                    Text = title,
+                    ForeColor = Color.Gainsboro,
+                    Font = new Font("Consolas", 9f, FontStyle.Bold),
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Padding = new Padding(12, 18, 12, 12),
+                    BackColor = Color.FromArgb(18, 20, 24)
+                };
+                inner = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Padding = new Padding(0, 4, 0, 6),
+                    Margin = new Padding(0),
+                    Location = new Point(12, 24)
+                };
+                group.Controls.Add(inner);
+                wrapper = group;
+            }
+            else
+            {
+                var panel = new Panel
+                {
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = Color.FromArgb(18, 20, 24),
+                    Padding = new Padding(0, 0, 0, 6)
+                };
+
+                Label header = null;
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    header = new Label
+                    {
+                        AutoSize = true,
+                        ForeColor = Color.Silver,
+                        Font = new Font("Consolas", type == "page" ? 12f : 10f, FontStyle.Bold),
+                        Text = title,
+                        Margin = new Padding(0, 0, 0, 4)
+                    };
+                    labels.Add(header);
+                    panel.Controls.Add(header);
+                }
+
+                inner = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Padding = new Padding(type == "section" ? 12 : 0, 4, 0, 8),
+                    Margin = new Padding(0),
+                    Top = header != null ? header.Bottom : 0
+                };
+                panel.Controls.Add(inner);
+                wrapper = panel;
+            }
+
+            var children = UiNodeReader.GetArray(dict, "children");
+            if (_debug && children.Length == 0 && dict.ContainsKey("children") && dict["children"] != null)
+            {
+                _logger.Log(string.Format(
+                    "Children present but not parsed. Type={0}",
+                    dict["children"].GetType().FullName));
+            }
+
+            foreach (var child in children)
+            {
+                AddNode(child, inner, labels, tables, toolTip, rerender, setPayload);
+            }
+
+            container.Controls.Add(wrapper);
+        }
+
+        private static Control CreateTable(Dictionary<string, object> dict, List<ListView> tables)
+        {
+            var listView = new ListView
+            {
+                View = View.Details,
+                FullRowSelect = false,
+                GridLines = true,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                BackColor = Color.FromArgb(22, 24, 28),
+                ForeColor = Color.Gainsboro
+            };
+
+            var headers = UiNodeReader.GetArray(dict, "headers");
+            foreach (var header in headers)
+            {
+                listView.Columns.Add(header != null ? header.ToString() : string.Empty);
+            }
+
+            foreach (var rowObj in UiNodeReader.GetArray(dict, "rows"))
+            {
+                var rowArr = rowObj as object[] ?? (rowObj as ArrayList != null ? ((ArrayList)rowObj).Cast<object>().ToArray() : new object[0]);
+                if (rowArr.Length == 0)
+                {
+                    continue;
+                }
+
+                var items = rowArr.Select(cell => cell != null ? cell.ToString() : string.Empty).ToArray();
+                var item = new ListViewItem(items);
+                listView.Items.Add(item);
+            }
+
+            tables.Add(listView);
+            return listView;
+        }
+
+        private Control CreateButtonRow(
+            Dictionary<string, object> dict,
+            ToolTip toolTip,
+            Action rerender,
+            Action<UiPayload> setPayload)
+        {
+            var panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = Color.FromArgb(18, 20, 24)
+            };
+
+            foreach (var buttonObj in UiNodeReader.GetArray(dict, "buttons"))
+            {
+                var buttonDict = buttonObj as Dictionary<string, object>;
+                if (buttonDict == null)
+                {
+                    continue;
+                }
+
+                string label = UiNodeReader.GetString(buttonDict, "label") ?? "Action";
+                string hint = UiNodeReader.GetString(buttonDict, "hint");
+                var args = UiNodeReader.GetArray(buttonDict, "args");
+
+                var button = new Button
+                {
+                    Text = label,
+                    AutoSize = true,
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = Color.FromArgb(32, 36, 44),
+                    ForeColor = Color.Gainsboro,
+                    Margin = new Padding(6, 4, 6, 4),
+                    Padding = new Padding(10, 6, 10, 6),
+                    Font = new Font("Consolas", 9f, FontStyle.Bold)
+                };
+                button.FlatAppearance.BorderColor = Color.FromArgb(80, 90, 110);
+                button.FlatAppearance.BorderSize = 1;
+                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(80, 110, 170);
+                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(55, 75, 120);
+
+                if (!string.IsNullOrWhiteSpace(hint))
+                {
+                    toolTip.SetToolTip(button, hint);
+                }
+
+                button.Click += delegate
+                {
+                    string[] actionArgs = args.Select(a => a != null ? a.ToString() : string.Empty).ToArray();
+                    string[] finalArgs = BuildArgsForAction(_baseArgs, actionArgs);
+                    int ignored;
+                    UiPayload next = _session.Execute(finalArgs, out ignored);
+                    setPayload(next);
+                    rerender();
+                };
+
+                panel.Controls.Add(button);
+            }
+
+            return panel;
+        }
+
+        private static Control CreateTextInput(Dictionary<string, object> dict)
+        {
+            string label = UiNodeReader.GetString(dict, "label") ?? UiNodeReader.GetString(dict, "name") ?? "input";
+            bool required = UiNodeReader.GetBool(dict, "required");
+            string helper = UiNodeReader.GetString(dict, "helperText");
+            string placeholder = UiNodeReader.GetString(dict, "placeholder");
+            string value = UiNodeReader.GetString(dict, "value") ?? string.Empty;
+
+            var panel = new Panel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = Color.FromArgb(18, 20, 24)
+            };
+
+            var labelControl = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Consolas", 9f, FontStyle.Bold),
+                Text = required ? label + " *" : label
+            };
+
+            var input = new TextBox
+            {
+                Width = 240,
+                Text = value,
+                ForeColor = Color.Gainsboro,
+                BackColor = Color.FromArgb(32, 36, 44),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            if (!string.IsNullOrWhiteSpace(placeholder) && string.IsNullOrWhiteSpace(value))
+            {
+                input.Text = placeholder;
+                input.ForeColor = Color.DimGray;
+            }
+
+            panel.Controls.Add(labelControl);
+            panel.Controls.Add(input);
+            input.Top = labelControl.Bottom + 4;
+
+            if (!string.IsNullOrWhiteSpace(helper))
+            {
+                var helperLabel = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = Color.DimGray,
+                    Font = new Font("Consolas", 8f),
+                    Text = helper,
+                    Top = input.Bottom + 4
+                };
+                panel.Controls.Add(helperLabel);
+            }
+
+            return panel;
+        }
+
+        private static Control CreateSelect(Dictionary<string, object> dict)
+        {
+            string label = UiNodeReader.GetString(dict, "label") ?? UiNodeReader.GetString(dict, "name") ?? "select";
+            bool required = UiNodeReader.GetBool(dict, "required");
+            string helper = UiNodeReader.GetString(dict, "helperText");
+            var optionsDict = dict.ContainsKey("options") ? dict["options"] as Dictionary<string, object> : null;
+            string value = UiNodeReader.GetString(dict, "value") ?? string.Empty;
+
+            var panel = new Panel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = Color.FromArgb(18, 20, 24)
+            };
+
+            var labelControl = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Consolas", 9f, FontStyle.Bold),
+                Text = required ? label + " *" : label
+            };
+
+            var combo = new ComboBox
+            {
+                Width = 240,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(32, 36, 44),
+                ForeColor = Color.Gainsboro
+            };
+
+            if (optionsDict != null)
+            {
+                foreach (var entry in optionsDict)
+                {
+                    combo.Items.Add(new ComboItem(entry.Key, entry.Value != null ? entry.Value.ToString() : entry.Key));
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                foreach (ComboItem item in combo.Items)
+                {
+                    if (item.Value == value || item.Key == value)
+                    {
+                        combo.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
+
+            panel.Controls.Add(labelControl);
+            panel.Controls.Add(combo);
+            combo.Top = labelControl.Bottom + 4;
+
+            if (!string.IsNullOrWhiteSpace(helper))
+            {
+                var helperLabel = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = Color.DimGray,
+                    Font = new Font("Consolas", 8f),
+                    Text = helper,
+                    Top = combo.Bottom + 4
+                };
+                panel.Controls.Add(helperLabel);
+            }
+
+            return panel;
+        }
+
+        private static string[] BuildArgsForAction(string[] baseArgs, string[] actionArgs)
+        {
+            var flags = baseArgs.Where(arg => arg.StartsWith("-", StringComparison.Ordinal)).ToList();
+            var args = new List<string>();
+            if (actionArgs != null)
+            {
+                args.AddRange(actionArgs);
+            }
+            args.AddRange(flags);
+            return args.ToArray();
+        }
+
+        private sealed class ComboItem
+        {
+            public string Key { get; private set; }
+            public string Value { get; private set; }
+
+            public ComboItem(string key, string value)
+            {
+                Key = key;
+                Value = value;
+            }
+
+            public override string ToString()
+            {
+                return Value;
+            }
+        }
+    }
+}
