@@ -5,6 +5,7 @@ namespace Framework\Cli\Ui;
 final class RenderState
 {
     private array $actions = [];
+    private int $nodeCounter = 0;
 
     public function addAction(array $action): void
     {
@@ -14,5 +15,11 @@ final class RenderState
     public function actions(): array
     {
         return $this->actions;
+    }
+
+    public function nextNodeId(string $prefix): string
+    {
+        $this->nodeCounter++;
+        return $prefix . '-' . $this->nodeCounter;
     }
 }

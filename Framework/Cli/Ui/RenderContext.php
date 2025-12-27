@@ -74,6 +74,11 @@ final class RenderContext
         return $this->state->actions();
     }
 
+    public function nextNodeId(string $prefix): string
+    {
+        return $this->state->nextNodeId($prefix);
+    }
+
     private static function normalizeScheme(string $scheme): string
     {
         $normalized = strtolower(trim($scheme));

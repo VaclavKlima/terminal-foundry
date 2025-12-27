@@ -21,7 +21,7 @@ final class Log
 
     private static function write(string $level, string $message): void
     {
-        $line = sprintf('[%s] [%s] %s', date('Y-m-d H:i:s'), $level, $message);
+        $line = sprintf('[%s] %s',  $level, $message);
         error_log($line);
     }
 }
