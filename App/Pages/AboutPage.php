@@ -39,7 +39,8 @@ final class AboutPage extends PageDefinition
                         ])
                         ->helperText('UI theme preference'),
                     ButtonRow::make([
-                        Button::make('Home')->hint('main home')->route('main', 'home'),
+                        Button::make('Home')->hint('main home')
+                            ->onClick(fn () => \Framework\Cli\Runtime\Router::to('main', 'home')),
                     ]),
                 ]),
             ]);

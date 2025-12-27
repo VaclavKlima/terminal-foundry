@@ -27,4 +27,38 @@ spl_autoload_register(function (string $class): void {
 use App\Kernel;
 
 $kernel = new Kernel();
-$kernel->run($_SERVER['argv'] ?? []);
+$argv = $_SERVER['argv'] ?? [];
+if (in_array('--ui-worker', $argv, true)) {
+    putenv('APP_WORKER=1');
+    $script = $argv[0] ?? 'index.php';
+    while (($line = fgets(STDIN)) !== false) {
+        $trimmed = trim($line);
+        if ($trimmed === '') {
+            continue;
+        }
+
+        $payload = json_decode($trimmed, true);
+        if (!is_array($payload)) {
+            continue;
+        }
+
+        $command = $payload['command'] ?? $payload['Command'] ?? null;
+        if ($command === 'exit') {
+            break;
+        }
+
+        $args = [];
+        if (isset($payload['args']) && is_array($payload['args'])) {
+            $args = $payload['args'];
+        } elseif (isset($payload['Args']) && is_array($payload['Args'])) {
+            $args = $payload['Args'];
+        }
+
+        $kernel->run(array_merge([$script], $args, ['--ui-json']));
+        fflush(STDOUT);
+    }
+    exit(0);
+}
+
+putenv('APP_WORKER=0');
+$kernel->run($argv);

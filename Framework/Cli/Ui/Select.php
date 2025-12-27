@@ -4,6 +4,8 @@ namespace Framework\Cli\Ui;
 
 final class Select implements Element, NodeElement
 {
+    use HandlesReactive;
+
     private string $name;
     private ?string $label = null;
     private ?string $helperText = null;
@@ -87,6 +89,12 @@ final class Select implements Element, NodeElement
 
     public function toNode(RenderContext $context): array
     {
+        $onChange = null;
+        $handler = $this->reactiveHandler();
+        if ($handler !== null && getenv('APP_WORKER') === '1') {
+            $onChange = \Framework\Cli\Runtime\ActionRegistry::register($handler);
+        }
+
         return [
             'type' => 'select',
             'name' => $this->name,
@@ -95,6 +103,7 @@ final class Select implements Element, NodeElement
             'options' => $this->options,
             'value' => $this->value,
             'required' => $this->required,
+            'onChangeAction' => $onChange,
         ];
     }
 }

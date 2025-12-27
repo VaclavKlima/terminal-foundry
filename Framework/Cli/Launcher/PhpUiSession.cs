@@ -2,7 +2,7 @@ using System;
 
 namespace PhpCompiler
 {
-    internal sealed class PhpUiSession
+    internal sealed class PhpUiSession : IPhpUiSession
     {
         private readonly LauncherLog _logger;
         private readonly PhpProcessRunner _runner;
@@ -41,6 +41,7 @@ namespace PhpCompiler
             {
                 _logger.Log(string.Format("PHP stdout length: {0}", result.Output.Length));
                 _logger.Log(string.Format("PHP stderr length: {0}", result.Error.Length));
+                _logger.Log(string.Format("PHP execution time: {0} ms", result.DurationMs));
             }
             if (!string.IsNullOrWhiteSpace(result.Error))
             {

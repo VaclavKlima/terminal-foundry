@@ -9,17 +9,20 @@ namespace PhpCompiler
 {
     internal sealed class UiWindow
     {
-        private readonly PhpUiSession _session;
+        private readonly IPhpUiSession _session;
         private readonly string[] _baseArgs;
         private readonly LauncherLog _logger;
         private readonly bool _debug;
+        private readonly bool _debugTree;
+        private readonly Dictionary<string, string> _inputState = new Dictionary<string, string>();
 
-        public UiWindow(PhpUiSession session, string[] baseArgs, LauncherLog logger, bool debug)
+        public UiWindow(IPhpUiSession session, string[] baseArgs, LauncherLog logger, bool debug, bool debugTree)
         {
             _session = session;
             _baseArgs = baseArgs ?? Array.Empty<string>();
             _logger = logger;
             _debug = debug;
+            _debugTree = debugTree;
         }
 
         public void Show(UiPayload payload, string title)
@@ -132,7 +135,10 @@ namespace PhpCompiler
                             stack.Width,
                             stack.Height);
                         _logger.Log("Render stats: " + debugLabel.Text);
-                        LogControlTree(stack, 0);
+                        if (_debugTree)
+                        {
+                            LogControlTree(stack, 0);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -154,13 +160,21 @@ namespace PhpCompiler
             {
                 render();
                 UpdateLayout(scroll, labels, tables);
-                if (_debug)
+                if (_debug && _debugTree)
                 {
                     form.BeginInvoke((Action)delegate
                     {
                         UpdateLayout(scroll, labels, tables);
                         LogControlTree(stack, 0);
                     });
+                }
+            };
+            form.FormClosed += delegate
+            {
+                var disposable = _session as IDisposable;
+                if (disposable != null)
+                {
+                    disposable.Dispose();
                 }
             };
 
@@ -260,10 +274,10 @@ namespace PhpCompiler
                     container.Controls.Add(CreateButtonRow(dict, toolTip, rerender, setPayload));
                     break;
                 case "textInput":
-                    container.Controls.Add(CreateTextInput(dict));
+                    container.Controls.Add(CreateTextInput(dict, rerender, setPayload));
                     break;
                 case "select":
-                    container.Controls.Add(CreateSelect(dict));
+                    container.Controls.Add(CreateSelect(dict, rerender, setPayload));
                     break;
                 default:
                     container.Controls.Add(CreateTextLabel("Unsupported element: " + type, labels));
@@ -453,6 +467,11 @@ namespace PhpCompiler
                 {
                     string[] actionArgs = args.Select(a => a != null ? a.ToString() : string.Empty).ToArray();
                     string[] finalArgs = BuildArgsForAction(_baseArgs, actionArgs);
+                    if (_debug)
+                    {
+                        _logger.Log("Button click args: " + string.Join(" ", actionArgs));
+                        _logger.Log("Button click final args: " + string.Join(" ", finalArgs));
+                    }
                     int ignored;
                     UiPayload next = _session.Execute(finalArgs, out ignored);
                     setPayload(next);
@@ -465,13 +484,18 @@ namespace PhpCompiler
             return panel;
         }
 
-        private static Control CreateTextInput(Dictionary<string, object> dict)
+        private Control CreateTextInput(
+            Dictionary<string, object> dict,
+            Action rerender,
+            Action<UiPayload> setPayload)
         {
             string label = UiNodeReader.GetString(dict, "label") ?? UiNodeReader.GetString(dict, "name") ?? "input";
+            string name = UiNodeReader.GetString(dict, "name") ?? label;
             bool required = UiNodeReader.GetBool(dict, "required");
             string helper = UiNodeReader.GetString(dict, "helperText");
             string placeholder = UiNodeReader.GetString(dict, "placeholder");
             string value = UiNodeReader.GetString(dict, "value") ?? string.Empty;
+            string onChangeAction = UiNodeReader.GetString(dict, "onChangeAction");
 
             var panel = new Panel
             {
@@ -491,16 +515,70 @@ namespace PhpCompiler
             var input = new TextBox
             {
                 Width = 240,
-                Text = value,
                 ForeColor = Color.Gainsboro,
                 BackColor = Color.FromArgb(32, 36, 44),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            if (!string.IsNullOrWhiteSpace(placeholder) && string.IsNullOrWhiteSpace(value))
+            string cachedValue;
+            if (_inputState.TryGetValue(name, out cachedValue))
+            {
+                input.Text = cachedValue;
+                input.ForeColor = Color.Gainsboro;
+            }
+            else if (!string.IsNullOrWhiteSpace(value))
+            {
+                input.Text = value;
+            }
+            else if (!string.IsNullOrWhiteSpace(placeholder))
             {
                 input.Text = placeholder;
                 input.ForeColor = Color.DimGray;
+            }
+
+            if (!string.IsNullOrWhiteSpace(onChangeAction))
+            {
+                string oldValue = input.Text;
+                bool ready = false;
+                var debounce = new Timer { Interval = 250 };
+                debounce.Tick += delegate
+                {
+                    debounce.Stop();
+                    string newValue = input.Text;
+                    if (newValue == oldValue)
+                    {
+                        return;
+                    }
+
+                    _inputState[name] = newValue;
+                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", onChangeAction, "--value", newValue, "--old", oldValue });
+                    int ignored;
+                    UiPayload next = _session.Execute(finalArgs, out ignored);
+                    setPayload(next);
+                    rerender();
+                    oldValue = newValue;
+                };
+
+                input.TextChanged += delegate
+                {
+                    if (!ready)
+                    {
+                        ready = true;
+                        oldValue = input.Text;
+                        return;
+                    }
+
+                    _inputState[name] = input.Text;
+                    debounce.Stop();
+                    debounce.Start();
+                };
+            }
+            else
+            {
+                input.TextChanged += delegate
+                {
+                    _inputState[name] = input.Text;
+                };
             }
 
             panel.Controls.Add(labelControl);
@@ -523,13 +601,18 @@ namespace PhpCompiler
             return panel;
         }
 
-        private static Control CreateSelect(Dictionary<string, object> dict)
+        private Control CreateSelect(
+            Dictionary<string, object> dict,
+            Action rerender,
+            Action<UiPayload> setPayload)
         {
             string label = UiNodeReader.GetString(dict, "label") ?? UiNodeReader.GetString(dict, "name") ?? "select";
+            string name = UiNodeReader.GetString(dict, "name") ?? label;
             bool required = UiNodeReader.GetBool(dict, "required");
             string helper = UiNodeReader.GetString(dict, "helperText");
             var optionsDict = dict.ContainsKey("options") ? dict["options"] as Dictionary<string, object> : null;
             string value = UiNodeReader.GetString(dict, "value") ?? string.Empty;
+            string onChangeAction = UiNodeReader.GetString(dict, "onChangeAction");
 
             var panel = new Panel
             {
@@ -574,6 +657,50 @@ namespace PhpCompiler
                 }
             }
 
+            string cachedValue;
+            if (_inputState.TryGetValue(name, out cachedValue))
+            {
+                foreach (ComboItem item in combo.Items)
+                {
+                    if (item.Value == cachedValue || item.Key == cachedValue)
+                    {
+                        combo.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(onChangeAction))
+            {
+                string oldValue = GetComboValue(combo.SelectedItem as ComboItem);
+                bool ready = false;
+                combo.SelectedIndexChanged += delegate
+                {
+                    if (!ready)
+                    {
+                        ready = true;
+                        oldValue = GetComboValue(combo.SelectedItem as ComboItem);
+                        return;
+                    }
+
+                    string newValue = GetComboValue(combo.SelectedItem as ComboItem);
+                    _inputState[name] = newValue;
+                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", onChangeAction, "--value", newValue, "--old", oldValue });
+                    int ignored;
+                    UiPayload next = _session.Execute(finalArgs, out ignored);
+                    setPayload(next);
+                    rerender();
+                    oldValue = newValue;
+                };
+            }
+            else
+            {
+                combo.SelectedIndexChanged += delegate
+                {
+                    _inputState[name] = GetComboValue(combo.SelectedItem as ComboItem);
+                };
+            }
+
             panel.Controls.Add(labelControl);
             panel.Controls.Add(combo);
             combo.Top = labelControl.Bottom + 4;
@@ -592,6 +719,16 @@ namespace PhpCompiler
             }
 
             return panel;
+        }
+
+        private static string GetComboValue(ComboItem item)
+        {
+            if (item == null)
+            {
+                return string.Empty;
+            }
+
+            return item.Key ?? item.Value ?? string.Empty;
         }
 
         private static string[] BuildArgsForAction(string[] baseArgs, string[] actionArgs)

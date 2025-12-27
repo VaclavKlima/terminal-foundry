@@ -2,6 +2,7 @@
 
 namespace App\Pages;
 
+use Framework\Cli\Runtime\Log;
 use Framework\Cli\Runtime\PageDefinition;
 use Framework\Cli\Ui\Button;
 use Framework\Cli\Ui\Card;
@@ -29,20 +30,26 @@ final class HomePage extends PageDefinition
                     Text::make('Console UI booted. Use "main about" or "tools status".'),
                     Card::make('Next')->schema([
                         Text::make('Jump to other pages using the commands below.'),
-                        Button::make('Tools')->hint('tools status')->route('tools', 'status'),
+                        Button::make('Tools')->hint('tools status')
+                            ->onClick(fn () => \Framework\Cli\Runtime\Router::to('tools', 'status')),
                     ]),
                     Table::make(['Item', 'Value'])->rows([
                         ['Args', $argsText],
                     ]),
-                    Button::make('About')->hint('main about')->route('main', 'about'),
-                    Button::make('Tools')->hint('tools status')->route('tools', 'status'),
+                    Button::make('About')->hint('main about')
+                        ->onClick(fn () => \Framework\Cli\Runtime\Router::to('main', 'about')),
+                    Button::make('Tools')->hint('tools status')
+                        ->onClick(fn () => \Framework\Cli\Runtime\Router::to('tools', 'status')),
                 ]),
                 Section::make('Inputs')->schema([
                     TextInput::make('name')
                         ->label('Name')
                         ->required()
                         ->helperText('Internal name for administration purposes only')
-                        ->columnSpan(2),
+                        ->columnSpan(2)
+                    ->reactive(function ($value, $old) {
+                        Log::info("Name changed from $old to $value");
+                    }),
                     TextInput::make('mode')->label('Mode')->placeholder('debug'),
                 ]),
             ]);

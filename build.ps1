@@ -68,6 +68,7 @@ if (Test-Path "App") { Copy-Item -Recurse -Force "App" $OutDir }
 if (Test-Path "Framework") { Copy-Item -Recurse -Force "Framework" $OutDir }
 if (Test-Path "composer.json") { Copy-Item -Force "composer.json" $OutDir }
 if (Test-Path "composer.lock") { Copy-Item -Force "composer.lock" $OutDir }
+if (Test-Path ".env") { Copy-Item -Force ".env" $OutDir }
 
 $phpWinExe = Join-Path $phpDir "php-win.exe"
 if (Test-Path $phpWinExe) {

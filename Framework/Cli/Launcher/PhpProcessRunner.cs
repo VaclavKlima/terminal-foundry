@@ -23,18 +23,20 @@ namespace PhpCompiler
                 StandardErrorEncoding = Encoding.UTF8
             };
 
+            var stopwatch = Stopwatch.StartNew();
             using (var process = Process.Start(psi))
             {
                 if (process == null)
                 {
-                    return new PhpExecutionResult(4, string.Empty, "Failed to start PHP process.");
+                    return new PhpExecutionResult(4, string.Empty, "Failed to start PHP process.", 0);
                 }
 
                 string output = process.StandardOutput.ReadToEnd();
                 string error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
+                stopwatch.Stop();
 
-                return new PhpExecutionResult(process.ExitCode, output, error);
+                return new PhpExecutionResult(process.ExitCode, output, error, stopwatch.ElapsedMilliseconds);
             }
         }
     }
@@ -57,15 +59,17 @@ namespace PhpCompiler
 
     internal sealed class PhpExecutionResult
     {
-        public PhpExecutionResult(int exitCode, string output, string error)
+        public PhpExecutionResult(int exitCode, string output, string error, long durationMs)
         {
             ExitCode = exitCode;
             Output = output ?? string.Empty;
             Error = error ?? string.Empty;
+            DurationMs = durationMs;
         }
 
         public int ExitCode { get; private set; }
         public string Output { get; private set; }
         public string Error { get; private set; }
+        public long DurationMs { get; private set; }
     }
 }

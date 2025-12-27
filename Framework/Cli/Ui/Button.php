@@ -4,6 +4,8 @@ namespace Framework\Cli\Ui;
 
 final class Button
 {
+    use HandlesOnClick;
+
     private string $label;
     private ?string $hint;
     private bool $active;
@@ -34,15 +36,11 @@ final class Button
         return $this;
     }
 
-    public function onClick(array $args): self
-    {
-        $this->actionArgs = $args;
-        return $this;
-    }
-
     public function route(string $app, string $page, array $args = []): self
     {
-        $this->actionArgs = array_merge([$app, $page], $args);
+        $this->onClick(static function () use ($app, $page, $args) {
+            return \Framework\Cli\Runtime\Router::to($app, $page, $args);
+        });
         return $this;
     }
 
@@ -64,5 +62,10 @@ final class Button
     public function actionArgs(): ?array
     {
         return $this->actionArgs;
+    }
+
+    protected function clearActionArgs(): void
+    {
+        $this->actionArgs = null;
     }
 }

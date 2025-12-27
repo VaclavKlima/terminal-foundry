@@ -15,4 +15,9 @@ final class Router
 
         return new RouteSelection($app, $page, $args);
     }
+
+    public static function to(string $app, string $page, array $args = []): RouteIntent
+    {
+        return new RouteIntent($app, $page, $args);
+    }
 }

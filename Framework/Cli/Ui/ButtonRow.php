@@ -2,6 +2,9 @@
 
 namespace Framework\Cli\Ui;
 
+use Framework\Cli\Runtime\ActionRegistry;
+use Framework\Cli\Runtime\RouteIntent;
+
 final class ButtonRow implements Element, NodeElement
 {
     private array $buttons;
@@ -37,6 +40,11 @@ final class ButtonRow implements Element, NodeElement
             $label = $button->label();
             $hint = $button->hintText();
             $actionArgs = $button->actionArgs();
+            $actionHandler = $button->actionHandler();
+            if ($actionHandler !== null) {
+                $actionArgs = self::resolveActionArgs($actionHandler);
+            }
+
             if ($actionArgs !== null) {
                 $context->addAction([
                     'label' => $label,
@@ -65,10 +73,16 @@ final class ButtonRow implements Element, NodeElement
                 continue;
             }
 
+            $actionArgs = $button->actionArgs();
+            $actionHandler = $button->actionHandler();
+            if ($actionHandler !== null) {
+                $actionArgs = self::resolveActionArgs($actionHandler);
+            }
+
             $buttons[] = [
                 'label' => $button->label(),
                 'hint' => $button->hintText(),
-                'args' => $button->actionArgs(),
+                'args' => $actionArgs,
             ];
         }
 
@@ -76,5 +90,24 @@ final class ButtonRow implements Element, NodeElement
             'type' => 'buttonRow',
             'buttons' => $buttons,
         ];
+    }
+
+    private static function resolveActionArgs(\Closure $handler): ?array
+    {
+        if (getenv('APP_WORKER') === '1') {
+            return ['--action', ActionRegistry::register($handler)];
+        }
+
+        $result = $handler();
+        if ($result instanceof RouteIntent) {
+            $args = [$result->app(), $result->page()];
+            $extra = $result->args();
+            if ($extra !== []) {
+                $args = array_merge($args, $extra);
+            }
+            return $args;
+        }
+
+        return null;
     }
 }

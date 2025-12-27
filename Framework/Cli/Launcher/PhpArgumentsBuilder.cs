@@ -17,6 +17,14 @@ namespace PhpCompiler
                 passthrough);
         }
 
+        public static string BuildWorker(string script, string errorLogPath)
+        {
+            return string.Format(
+                "-d display_errors=0 -d log_errors=1 -d error_log={0} {1} --ui-worker",
+                Quote(errorLogPath),
+                Quote(script));
+        }
+
         public static string JoinArgs(string[] args)
         {
             var sb = new StringBuilder();

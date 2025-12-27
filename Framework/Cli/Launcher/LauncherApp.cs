@@ -16,6 +16,8 @@ namespace PhpCompiler
             var logger = new LauncherLog(logPath);
             var env = EnvLoader.Load(Path.Combine(exeDir, ".env"));
             bool debugUi = EnvLoader.ReadBool(env, "LAUNCHER_DEBUG", false);
+            bool useWorker = EnvLoader.ReadBool(env, "LAUNCHER_WORKER", true);
+            bool debugTree = EnvLoader.ReadBool(env, "LAUNCHER_DEBUG_TREE", false);
 
             try
             {
@@ -41,19 +43,51 @@ namespace PhpCompiler
                     return 3;
                 }
 
-                var session = new PhpUiSession(
-                    logger,
-                    new PhpProcessRunner(),
-                    new UiPayloadParser(),
-                    phpExe,
-                    script,
-                    errorLogPath,
-                    debugUi);
+                IPhpUiSession session;
+                if (useWorker)
+                {
+                    try
+                    {
+                        var worker = new PhpWorkerSession(
+                            logger,
+                            new UiPayloadParser(),
+                            phpExe,
+                            script,
+                            errorLogPath,
+                            debugUi,
+                            debugTree);
+                        worker.Start();
+                        session = worker;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Log("Worker start failed, falling back to process-per-request: " + ex.Message);
+                        session = new PhpUiSession(
+                            logger,
+                            new PhpProcessRunner(),
+                            new UiPayloadParser(),
+                            phpExe,
+                            script,
+                            errorLogPath,
+                            debugUi);
+                    }
+                }
+                else
+                {
+                    session = new PhpUiSession(
+                        logger,
+                        new PhpProcessRunner(),
+                        new UiPayloadParser(),
+                        phpExe,
+                        script,
+                        errorLogPath,
+                        debugUi);
+                }
 
                 int exitCode;
                 UiPayload payload = session.Execute(args, out exitCode);
 
-                var window = new UiWindow(session, args, logger, debugUi);
+                var window = new UiWindow(session, args, logger, debugUi, debugTree);
                 window.Show(payload, "PhpCompiler");
 
                 return exitCode;

@@ -11,13 +11,15 @@ use Framework\Cli\Ui\Renderer;
 
 final class Kernel
 {
+    private ?\Framework\Cli\Runtime\RouteSelection $lastSelection = null;
+
     public function run(array $argv): void
     {
         $registry = $this->buildRegistry();
         $router = new Router();
         $uiJson = in_array('--ui-json', $argv, true);
-        $argv = array_values(array_filter($argv, static fn (string $arg): bool => $arg !== '--ui-json'));
-        $selection = $router->resolve($argv, $registry);
+        $argv = array_values(array_filter($argv, static fn(string $arg): bool => $arg !== '--ui-json'));
+        $selection = $this->resolveSelection($argv, $registry, $router);
         $interactive = !$uiJson && $this->isInteractive($argv);
 
         do {
@@ -30,24 +32,24 @@ final class Kernel
                 ];
             }
 
-        $ui = new UiApp($options);
-        $ui->add($selection->page()->buildElement($selection->args()));
+            $ui = new UiApp($options);
+            $ui->add($selection->page()->buildElement($selection->args()));
 
-        $renderer = new Renderer();
-        if ($uiJson) {
-            $payload = $renderer->renderWithState($ui);
-            $nodes = $renderer->renderNodes($ui);
-            echo json_encode([
-                'text' => $payload['text'],
-                'actions' => $payload['actions'],
-                'nodes' => $nodes,
-                'currentApp' => $selection->app()->name(),
-            ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
-            return;
-        }
+            $renderer = new Renderer();
+            if ($uiJson) {
+                $payload = $renderer->renderWithState($ui);
+                $nodes = $renderer->renderNodes($ui);
+                echo json_encode([
+                        'text' => $payload['text'],
+                        'actions' => $payload['actions'],
+                        'nodes' => $nodes,
+                        'currentApp' => $selection->app()->name(),
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                return;
+            }
 
-        $rendered = $renderer->render($ui);
-        echo $rendered . PHP_EOL;
+            $rendered = $renderer->render($ui);
+            echo $rendered . PHP_EOL;
 
             if (!$interactive) {
                 return;
@@ -60,6 +62,47 @@ final class Kernel
 
             $selection = $this->resolveAppSelection($choice, $registry, $selection->app()->name());
         } while (true);
+    }
+
+    private function resolveSelection(array $argv, Registry $registry, Router $router): \Framework\Cli\Runtime\RouteSelection
+    {
+        $actionIndex = array_search('--action', $argv, true);
+        if ($actionIndex !== false) {
+            $actionId = $argv[$actionIndex + 1] ?? null;
+            if ($actionId !== null) {
+                $value = null;
+                $old = null;
+                $valueIndex = array_search('--value', $argv, true);
+                if ($valueIndex !== false) {
+                    $value = $argv[$valueIndex + 1] ?? null;
+                }
+                $oldIndex = array_search('--old', $argv, true);
+                if ($oldIndex !== false) {
+                    $old = $argv[$oldIndex + 1] ?? null;
+                }
+
+                try {
+                    $result = \Framework\Cli\Runtime\ActionRegistry::invoke($actionId, [$value, $old]);
+                    if ($result instanceof \Framework\Cli\Runtime\RouteIntent) {
+                        $app = $registry->app($result->app());
+                        $page = $app->page($result->page());
+                        $selection = new \Framework\Cli\Runtime\RouteSelection($app, $page, $result->args());
+                        $this->lastSelection = $selection;
+                        return $selection;
+                    }
+                } catch (\Throwable $ex) {
+                    // Ignore missing action handlers and fall back to last/default selection.
+                }
+            }
+
+            if ($this->lastSelection !== null) {
+                return $this->lastSelection;
+            }
+        }
+
+        $selection = $router->resolve($argv, $registry);
+        $this->lastSelection = $selection;
+        return $selection;
     }
 
     private function buildRegistry(): Registry
@@ -89,7 +132,6 @@ final class Kernel
             return [];
         }
 
-        $before = get_declared_classes();
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($appsDir, \FilesystemIterator::SKIP_DOTS)
         );
@@ -100,12 +142,10 @@ final class Kernel
             }
         }
 
-        $after = get_declared_classes();
-        $newClasses = array_diff($after, $before);
-        sort($newClasses);
-
         $apps = [];
-        foreach ($newClasses as $class) {
+        $classes = get_declared_classes();
+        sort($classes);
+        foreach ($classes as $class) {
             $ref = new \ReflectionClass($class);
             if (!$ref->isInstantiable()) {
                 continue;
@@ -142,16 +182,16 @@ final class Kernel
         $apps = $registry->apps();
 
         if (is_numeric($trimmed)) {
-            $index = (int) $trimmed - 1;
+            $index = (int)$trimmed - 1;
             if (isset($apps[$index])) {
                 $app = $apps[$index];
-        return new \Framework\Cli\Runtime\RouteSelection($app, $app->defaultPage(), []);
+                return new \Framework\Cli\Runtime\RouteSelection($app, $app->defaultPage(), []);
             }
         }
 
         foreach ($apps as $app) {
             if ($app->name() === $trimmed) {
-        return new \Framework\Cli\Runtime\RouteSelection($app, $app->defaultPage(), []);
+                return new \Framework\Cli\Runtime\RouteSelection($app, $app->defaultPage(), []);
             }
         }
 
