@@ -760,12 +760,17 @@ namespace PhpCompiler
                 Text = required ? label + " *" : label
             };
 
+            var inputBase = Color.FromArgb(32, 36, 44);
+            var inputFocus = Color.FromArgb(45, 52, 64);
             var input = new TextBox
             {
                 Width = 240,
+                Height = 26,
+                AutoSize = false,
                 ForeColor = Color.Gainsboro,
-                BackColor = Color.FromArgb(32, 36, 44),
-                BorderStyle = BorderStyle.FixedSingle
+                BackColor = inputBase,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 9f, FontStyle.Bold)
             };
 
             string cachedValue;
@@ -838,6 +843,9 @@ namespace PhpCompiler
                 };
             }
 
+            input.Enter += delegate { input.BackColor = inputFocus; };
+            input.Leave += delegate { input.BackColor = inputBase; };
+
             panel.Controls.Add(labelControl);
             panel.Controls.Add(input);
             input.Top = labelControl.Bottom + 4;
@@ -888,12 +896,17 @@ namespace PhpCompiler
                 Text = required ? label + " *" : label
             };
 
+            var comboBase = Color.FromArgb(32, 36, 44);
+            var comboFocus = Color.FromArgb(45, 52, 64);
             var combo = new ComboBox
             {
                 Width = 240,
+                Height = 26,
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Color.FromArgb(32, 36, 44),
-                ForeColor = Color.Gainsboro
+                FlatStyle = FlatStyle.Flat,
+                BackColor = comboBase,
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Consolas", 9f, FontStyle.Bold)
             };
 
             if (optionsDict != null)
@@ -931,26 +944,32 @@ namespace PhpCompiler
                     }
                 }
             }
+            selectTag.LastValue = GetComboValue(combo.SelectedItem as ComboItem);
 
             if (!string.IsNullOrWhiteSpace(onChangeAction))
             {
-                string oldValue = GetComboValue(combo.SelectedItem as ComboItem);
                 bool ready = false;
                 combo.SelectedIndexChanged += delegate
                 {
+                    if (selectTag.IsUpdating)
+                    {
+                        return;
+                    }
+
                     if (!ready)
                     {
                         ready = true;
-                        oldValue = GetComboValue(combo.SelectedItem as ComboItem);
+                        selectTag.LastValue = GetComboValue(combo.SelectedItem as ComboItem);
                         return;
                     }
 
                     string newValue = GetComboValue(combo.SelectedItem as ComboItem);
                     _inputState[name] = newValue;
+                    string oldValue = selectTag.LastValue;
                     string actionId = selectTag.ActionId;
                     if (string.IsNullOrWhiteSpace(actionId))
                     {
-                        oldValue = newValue;
+                        selectTag.LastValue = newValue;
                         return;
                     }
                     string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", actionId, "--name", name, "--value", newValue, "--old", oldValue });
@@ -958,16 +977,23 @@ namespace PhpCompiler
                     UiPayload next = _session.Execute(finalArgs, out ignored);
                     setPayload(next);
                     rerender();
-                    oldValue = newValue;
+                    selectTag.LastValue = newValue;
                 };
             }
             else
             {
                 combo.SelectedIndexChanged += delegate
                 {
+                    if (selectTag.IsUpdating)
+                    {
+                        return;
+                    }
                     _inputState[name] = GetComboValue(combo.SelectedItem as ComboItem);
                 };
             }
+
+            combo.Enter += delegate { combo.BackColor = comboFocus; };
+            combo.Leave += delegate { combo.BackColor = comboBase; };
 
             panel.Controls.Add(labelControl);
             panel.Controls.Add(combo);
@@ -1162,41 +1188,50 @@ namespace PhpCompiler
             string value = UiNodeReader.GetString(dict, "value") ?? string.Empty;
             string onChangeAction = UiNodeReader.GetString(dict, "onChangeAction");
 
-            selectTag.Name = name;
-            selectTag.ActionId = onChangeAction;
-            selectTag.Label.Text = required ? label + " *" : label;
-
-            if (optionsDict != null)
+            selectTag.IsUpdating = true;
+            try
             {
-                selectTag.Combo.Items.Clear();
-                foreach (var entry in optionsDict)
-                {
-                    selectTag.Combo.Items.Add(new ComboItem(entry.Key, entry.Value != null ? entry.Value.ToString() : entry.Key));
-                }
-            }
+                selectTag.Name = name;
+                selectTag.ActionId = onChangeAction;
+                selectTag.Label.Text = required ? label + " *" : label;
 
-            string cachedValue;
-            if (_inputState.TryGetValue(name, out cachedValue))
-            {
-                foreach (ComboItem item in selectTag.Combo.Items)
+                if (optionsDict != null)
                 {
-                    if (item.Value == cachedValue || item.Key == cachedValue)
+                    selectTag.Combo.Items.Clear();
+                    foreach (var entry in optionsDict)
                     {
-                        selectTag.Combo.SelectedItem = item;
-                        break;
+                        selectTag.Combo.Items.Add(new ComboItem(entry.Key, entry.Value != null ? entry.Value.ToString() : entry.Key));
+                    }
+                }
+
+                string cachedValue;
+                if (_inputState.TryGetValue(name, out cachedValue))
+                {
+                    foreach (ComboItem item in selectTag.Combo.Items)
+                    {
+                        if (item.Value == cachedValue || item.Key == cachedValue)
+                        {
+                            selectTag.Combo.SelectedItem = item;
+                            break;
+                        }
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(value))
+                {
+                    foreach (ComboItem item in selectTag.Combo.Items)
+                    {
+                        if (item.Value == value || item.Key == value)
+                        {
+                            selectTag.Combo.SelectedItem = item;
+                            break;
+                        }
                     }
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(value))
+            finally
             {
-                foreach (ComboItem item in selectTag.Combo.Items)
-                {
-                    if (item.Value == value || item.Key == value)
-                    {
-                        selectTag.Combo.SelectedItem = item;
-                        break;
-                    }
-                }
+                selectTag.IsUpdating = false;
+                selectTag.LastValue = GetComboValue(selectTag.Combo.SelectedItem as ComboItem);
             }
 
             if (!string.IsNullOrWhiteSpace(helper))
@@ -1318,6 +1353,8 @@ namespace PhpCompiler
             public Label Label { get; private set; }
             public ComboBox Combo { get; private set; }
             public Label Helper { get; set; }
+            public bool IsUpdating { get; set; }
+            public string LastValue { get; set; }
         }
     }
 }

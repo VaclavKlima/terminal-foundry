@@ -45,11 +45,9 @@ final class HomePage extends PageDefinition
                     TextInput::make('name')
                         ->label('Name')
                         ->required()
-                        ->helperText('Internal name for administration purposes only')
+                        ->helperText("Internal name for administration purposes only: {$get('name')}")
                         ->columnSpan(2)
-                    ->reactive(function ($value, $old) {
-                        Log::info("Name changed from $old to $value");
-                    }),
+                    ->reactive(),
                     TextInput::make('mode')->label('Mode')->placeholder('debug'),
                 ]),
             ]);
