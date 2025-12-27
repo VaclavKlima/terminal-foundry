@@ -19,7 +19,7 @@ final class AboutPage extends PageDefinition
         return 'about';
     }
 
-    public function build(array $args): Element
+    public function build(array $args, callable $get, callable $set): Element
     {
         $version = $args[0] ?? 'dev';
 
@@ -37,7 +37,8 @@ final class AboutPage extends PageDefinition
                             'dark' => 'Dark',
                             'light' => 'Light',
                         ])
-                        ->helperText('UI theme preference'),
+                        ->reactive()
+                        ->helperText("You selected ui there is {$get('theme')} theme'"),
                     ButtonRow::make([
                         Button::make('Home')->hint('main home')
                             ->onClick(fn () => \Framework\Cli\Runtime\Router::to('main', 'home')),

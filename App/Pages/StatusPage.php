@@ -18,7 +18,7 @@ final class StatusPage extends PageDefinition
         return 'status';
     }
 
-    public function build(array $args): Element
+    public function build(array $args, callable $get, callable $set): Element
     {
         $state = $args[0] ?? 'ok';
 

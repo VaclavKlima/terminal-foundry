@@ -808,7 +808,7 @@ namespace PhpCompiler
                         oldValue = newValue;
                         return;
                     }
-                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", actionId, "--value", newValue, "--old", oldValue });
+                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", actionId, "--name", name, "--value", newValue, "--old", oldValue });
                     int ignored;
                     UiPayload next = _session.Execute(finalArgs, out ignored);
                     setPayload(next);
@@ -953,7 +953,7 @@ namespace PhpCompiler
                         oldValue = newValue;
                         return;
                     }
-                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", actionId, "--value", newValue, "--old", oldValue });
+                    string[] finalArgs = BuildArgsForAction(_baseArgs, new[] { "--action", actionId, "--name", name, "--value", newValue, "--old", oldValue });
                     int ignored;
                     UiPayload next = _session.Execute(finalArgs, out ignored);
                     setPayload(next);

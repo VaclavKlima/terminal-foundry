@@ -20,7 +20,7 @@ final class HomePage extends PageDefinition
         return 'home';
     }
 
-    public function build(array $args): Element
+    public function build(array $args, callable $get, callable $set): Element
     {
         $argsText = $args === [] ? 'No args provided.' : implode(' ', $args);
 

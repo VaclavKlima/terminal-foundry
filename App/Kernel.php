@@ -12,6 +12,12 @@ use Framework\Cli\Ui\Renderer;
 final class Kernel
 {
     private ?\Framework\Cli\Runtime\RouteSelection $lastSelection = null;
+    private \Framework\Cli\Runtime\FormState $state;
+
+    public function __construct()
+    {
+        $this->state = new \Framework\Cli\Runtime\FormState();
+    }
 
     public function run(array $argv): void
     {
@@ -33,7 +39,11 @@ final class Kernel
             }
 
             $ui = new UiApp($options);
-            $ui->add($selection->page()->buildElement($selection->args()));
+        $ui->add($selection->page()->buildElement(
+            $selection->args(),
+            $this->getStateAccessor($selection),
+            $this->setStateAccessor($selection)
+        ));
 
             $renderer = new Renderer();
             if ($uiJson) {
@@ -72,6 +82,7 @@ final class Kernel
             if ($actionId !== null) {
                 $value = null;
                 $old = null;
+                $name = null;
                 $valueIndex = array_search('--value', $argv, true);
                 if ($valueIndex !== false) {
                     $value = $argv[$valueIndex + 1] ?? null;
@@ -80,8 +91,15 @@ final class Kernel
                 if ($oldIndex !== false) {
                     $old = $argv[$oldIndex + 1] ?? null;
                 }
+                $nameIndex = array_search('--name', $argv, true);
+                if ($nameIndex !== false) {
+                    $name = $argv[$nameIndex + 1] ?? null;
+                }
 
                 try {
+                    if ($name !== null) {
+                        $this->setStateValue($registry, $router, $argv, $name, $value);
+                    }
                     $result = \Framework\Cli\Runtime\ActionRegistry::invoke($actionId, [$value, $old]);
                     if ($result instanceof \Framework\Cli\Runtime\RouteIntent) {
                         $app = $registry->app($result->app());
@@ -103,6 +121,30 @@ final class Kernel
         $selection = $router->resolve($argv, $registry);
         $this->lastSelection = $selection;
         return $selection;
+    }
+
+    private function getStateAccessor(\Framework\Cli\Runtime\RouteSelection $selection): callable
+    {
+        $prefix = $selection->app()->name() . '.' . $selection->page()->name() . '.';
+        return function (string $key, $default = '') use ($prefix) {
+            return $this->state->get($prefix, $key, $default);
+        };
+    }
+
+    private function setStateAccessor(\Framework\Cli\Runtime\RouteSelection $selection): callable
+    {
+        $prefix = $selection->app()->name() . '.' . $selection->page()->name() . '.';
+        return function (string $key, $value) use ($prefix): void {
+            $this->state->set($prefix, $key, $value);
+        };
+    }
+
+    private function setStateValue(Registry $registry, Router $router, array $argv, string $name, $value): void
+    {
+        $selection = $this->lastSelection ?? $router->resolve($argv, $registry);
+        $prefix = $selection->app()->name() . '.' . $selection->page()->name() . '.';
+        $this->state->set($prefix, $name, $value);
+        $this->lastSelection = $selection;
     }
 
     private function buildRegistry(): Registry

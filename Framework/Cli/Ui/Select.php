@@ -90,8 +90,13 @@ final class Select implements Element, NodeElement
     public function toNode(RenderContext $context): array
     {
         $onChange = null;
-        $handler = $this->reactiveHandler();
-        if ($handler !== null && getenv('APP_WORKER') === '1') {
+        if ($this->reactiveEnabled() && getenv('APP_WORKER') === '1') {
+            $handler = $this->reactiveHandler();
+            if ($handler === null) {
+                $handler = static function ($value = null, $old = null) {
+                    return null;
+                };
+            }
             $onChange = \Framework\Cli\Runtime\ActionRegistry::register($handler);
         }
 
